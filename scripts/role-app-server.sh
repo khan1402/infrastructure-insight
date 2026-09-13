@@ -29,6 +29,7 @@ docker rm backend-app 2>/dev/null || true
 # Run the backend container, publishing port 3000 to the host
 docker run -d \
   --name backend-app \
+  --hostname app-server \
   --restart unless-stopped \
   -p 3000:3000 \
   backend-app
