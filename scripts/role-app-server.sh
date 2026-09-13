@@ -4,7 +4,6 @@
 # Only the web servers (never the load balancer, never the outside world)
 # are allowed to reach it.
 set -euo pipefail
-source /vagrant/scripts/common.sh
 source /vagrant/scripts/docker-install.sh
 
 echo "==> Provisioning app-server..."
