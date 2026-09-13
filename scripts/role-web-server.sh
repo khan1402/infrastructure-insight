@@ -1,30 +1,39 @@
 #!/usr/bin/env bash
-# role-web-server.sh - a simple nginx instance standing in for "the web app".
-# Only the load balancer is allowed to reach port 80 here - nobody else,
+# role-web-server.sh — provisions a web server running the frontend container.
+# Only the load balancer is allowed to reach port 80 here — nobody else,
 # and definitely not the outside world.
 set -euo pipefail
+source /vagrant/scripts/docker-install.sh
 
-echo "==> Installing nginx (placeholder web app)"
-apt-get install -y nginx >/dev/null
+echo "==> Provisioning web-server..."
 
-HOST=$(hostname)
-cat <<EOF > /var/www/html/index.html
-<html><body><h1>Hello from ${HOST}</h1></body></html>
-EOF
-# The global umask hardening (027, set in common.sh) means files root
-# creates are no longer world-readable by default. nginx's worker process
-# runs as www-data, which isn't in the file's owning group, so without
-# this explicit fix it can't read its own webpage - producing a 403
-# despite the config itself being correct. Static content nginx serves
-# needs explicit ownership, regardless of the global umask policy.
-chown www-data:www-data /var/www/html/index.html
-chmod 644 /var/www/html/index.html
+# Remove the old nginx placeholder if it exists from a previous run
+systemctl stop nginx 2>/dev/null || true
+systemctl disable nginx 2>/dev/null || true
 
-systemctl restart nginx
-systemctl enable nginx
+# Copy the frontend application code onto this VM
+mkdir -p /opt/app/frontend
+cp -r /vagrant/app/frontend/* /opt/app/frontend/
+
+# Build the Docker image from the copied code
+cd /opt/app/frontend
+docker build -t frontend-app .
+
+# Stop and remove any previous container run (idempotency)
+docker stop frontend-app 2>/dev/null || true
+docker rm frontend-app 2>/dev/null || true
+
+# Run the frontend container, passing the backend's URL as an env var
+docker run -d \
+  --name frontend-app \
+  --hostname "$(hostname)" \
+  --restart unless-stopped \
+  -e BACKEND_URL=http://192.168.56.13:3000 \
+  -p 80:80 \
+  frontend-app
 
 echo "==> Restricting port 80 to the load balancer only"
 ufw allow from 192.168.56.10 to any port 80 proto tcp
 
-echo "==> role-web-server.sh complete"
+echo "==> Frontend container running on port 80."
 
