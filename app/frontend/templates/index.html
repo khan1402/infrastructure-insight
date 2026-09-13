@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Infrastructure Insight</title>
+</head>
+<body>
+    <h1>Infrastructure Insight</h1>
+
+    <p>Responding web server: <strong>{{ web_server_hostname }}</strong></p>
+
+    <h2>Backend Metrics</h2>
+    <ul>
+        <li>Hostname: {{ data.hostname }}</li>
+        <li>OS: {{ data.os }}</li>
+        <li>CPU cores: {{ data.cpu.cores_count }}</li>
+        <li>CPU usage: {{ data.cpu.usage_percent }}%</li>
+        <li>Memory used: {{ data.memory.used_mb }} MB / {{ data.memory.total_mb }} MB</li>
+        <li>Memory usage: {{ data.memory.percent_used }}%</li>
+    </ul>
+</body>
+</html>
+
+
