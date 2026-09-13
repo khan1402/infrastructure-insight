@@ -6,10 +6,13 @@ set -euo pipefail
 
 echo "==> Installing Docker..."
 
-# Skip if Docker is already installed (makes this script safe to re-run)
+# Skip if Docker is already installed (makes this script safe to re-run).
+# This file is sourced by the role-*.sh scripts, not executed as a
+# subprocess, so `exit` here would terminate the calling script entirely -
+# use `return` instead so only this sourced script's execution stops.
 if command -v docker &> /dev/null; then
     echo "Docker already installed, skipping."
-    exit 0
+    return 0
 fi
 
 # Install prerequisites for adding Docker's repository
