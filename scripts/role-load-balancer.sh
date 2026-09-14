@@ -9,8 +9,18 @@ apt-get install -y nginx >/dev/null
 
 cat <<'EOF' > /etc/nginx/sites-available/load-balancer
 upstream backend_web_servers {
-    server 192.168.56.11;
-    server 192.168.56.12;
+    # Algorithm: least_conn - routes each new request to whichever backend
+    # currently has the fewest active connections, rather than blindly
+    # alternating (plain round-robin). Better suited here since our backend
+    # calls add variable latency per request - round-robin would send a new
+    # request to a server that's still mid-request from before.
+    least_conn;
+
+    # max_fails=3 fail_timeout=10s: if a server fails 3 requests within
+    # 10 seconds, nginx temporarily stops sending it traffic and retries
+    # after the timeout - a passive health check with no extra tooling.
+    server 192.168.56.11 max_fails=3 fail_timeout=10s;
+    server 192.168.56.12 max_fails=3 fail_timeout=10s;
 }
 
 server {
@@ -36,3 +46,4 @@ echo "==> Opening HTTP to the outside world (this is the ONLY VM that does this)
 ufw allow 80/tcp
 
 echo "==> role-load-balancer.sh complete"
+
