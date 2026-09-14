@@ -23,13 +23,18 @@ docker build -t frontend-app .
 docker stop frontend-app 2>/dev/null || true
 docker rm frontend-app 2>/dev/null || true
 
-# Run the frontend container, passing the backend's URL as an env var
+# Detect this VM's own private network IP (192.168.56.x) so the same script
+# works correctly on both web-server-1 and web-server-2 without hardcoding.
+PRIVATE_IP=$(ip -4 addr show enp0s8 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+
+# Run the frontend container. Binding to the private IP (not 0.0.0.0) closes
+# the same Docker/UFW bypass gap as on app-server.
 docker run -d \
   --name frontend-app \
   --hostname "$(hostname)" \
   --restart unless-stopped \
   -e BACKEND_URL=http://192.168.56.13:3000 \
-  -p 80:80 \
+  -p "${PRIVATE_IP}:80:80" \
   frontend-app
 
 # Give uvicorn a moment to finish starting before provisioning continues

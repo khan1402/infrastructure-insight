@@ -26,13 +26,17 @@ docker build -t backend-app .
 docker stop backend-app 2>/dev/null || true
 docker rm backend-app 2>/dev/null || true
 
-# Run the backend container, publishing port 3000 to the host
+# Run the backend container. Binding to the specific private IP (not 0.0.0.0)
+# means Docker's own iptables rules only accept connections arriving on this
+# VM's private network interface - closing the gap where Docker used to
+# bypass UFW's subnet restriction entirely for published container ports.
 docker run -d \
   --name backend-app \
   --hostname app-server \
   --restart unless-stopped \
-  -p 3000:3000 \
+  -p 192.168.56.13:3000:3000 \
   backend-app
+
 # Give uvicorn a moment to finish starting before provisioning continues
 sleep 3
 

@@ -77,7 +77,57 @@ for entry in "${HOSTS[@]}"; do
   # hostname resolution
   ssh_cmd "$ip" "getent hosts load-balancer" &>/dev/null
   check "hostname resolution works (/etc/hosts)" $?
+
+  # --- Group 1-4 additions below ---
+
+  if [[ "$name" == "app-server" ]]; then
+    ssh_cmd "$ip" "command -v docker" &>/dev/null
+    check "Docker is installed" $?
+
+    ssh_cmd "$ip" "docker ps --filter name=backend-app --filter status=running -q | grep -q ." &>/dev/null
+    check "backend-app container is running" $?
+
+    ssh_cmd "$ip" "curl -sf http://localhost:3000/metrics | grep -q hostname" &>/dev/null
+    check "/metrics endpoint returns real data" $?
+  fi
+
+  if [[ "$name" == "web-server-1" || "$name" == "web-server-2" ]]; then
+    ssh_cmd "$ip" "command -v docker" &>/dev/null
+    check "Docker is installed" $?
+
+    ssh_cmd "$ip" "docker ps --filter name=frontend-app --filter status=running -q | grep -q ." &>/dev/null
+    check "frontend-app container is running" $?
+
+    ssh_cmd "$ip" "curl -sf http://localhost:80 | grep -q 'Infrastructure Insight'" &>/dev/null
+    check "frontend serves the expected page" $?
+  fi
+
+  if [[ "$name" == "load-balancer" ]]; then
+    ssh_cmd "$ip" "command -v nginx" &>/dev/null
+    check "nginx is installed" $?
+
+    ssh_cmd "$ip" "sudo nginx -t" &>/dev/null
+    check "nginx config is valid" $?
+  fi
 done
+
+# --- Load balancing behavior check (run from host, not over SSH) ---
+echo ""
+echo "=== Load balancer distribution check ==="
+responses=$(for i in $(seq 1 6); do curl -s http://192.168.56.10 | grep -oP '(?<=Responding web server: <strong>)[^<]+'; done)
+unique_servers=$(echo "$responses" | sort -u | wc -l)
+if [ "$unique_servers" -ge 2 ]; then
+  check "traffic is distributed across both web servers" 0
+else
+  check "traffic is distributed across both web servers (only saw: $(echo "$responses" | sort -u | tr '\n' ' '))" 1
+fi
+
+# --- No unused ports check ---
+echo ""
+echo "=== Port exposure check (from host machine) ==="
+# app-server:3000 should NOT be reachable from the load-balancer's IP range perspective on host directly - only from web tier
+nc -z -w2 192.168.56.13 3000 &>/dev/null
+check "app-server:3000 is NOT directly reachable from host (should only be reachable from web tier)" $([ $? -ne 0 ] && echo 0 || echo 1)
 
 echo ""
 echo "=================================="
