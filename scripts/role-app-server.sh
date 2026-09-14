@@ -33,6 +33,8 @@ docker run -d \
   --restart unless-stopped \
   -p 3000:3000 \
   backend-app
+# Give uvicorn a moment to finish starting before provisioning continues
+sleep 3
 
 echo "==> Restricting port 3000 to the web tier subnet only"
 ufw allow from 192.168.56.0/24 to any port 3000 proto tcp

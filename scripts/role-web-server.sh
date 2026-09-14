@@ -32,6 +32,9 @@ docker run -d \
   -p 80:80 \
   frontend-app
 
+# Give uvicorn a moment to finish starting before provisioning continues
+sleep 3
+
 echo "==> Restricting port 80 to the load balancer only"
 ufw allow from 192.168.56.10 to any port 80 proto tcp
 
