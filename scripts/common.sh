@@ -18,6 +18,7 @@ cat <<'EOF' >> /etc/hosts
 192.168.56.11 web-server-1
 192.168.56.12 web-server-2
 192.168.56.13 app-server
+192.168.56.14 backup
 EOF
 
 echo "==> [$THIS_HOST] Creating devops user"
@@ -97,6 +98,9 @@ else
   echo "session optional pam_umask.so umask=0027" >> /etc/pam.d/common-session
 fi
 
+echo "==> [$THIS_HOST] Installing rsync (needed for backup VM to pull data from this host)"
+apt-get install -y rsync >/dev/null
+
 echo "==> [$THIS_HOST] Installing and enabling UFW (default-deny baseline)"
 apt-get install -y ufw >/dev/null
 ufw default deny incoming
@@ -115,3 +119,4 @@ EOF
 systemctl enable --now unattended-upgrades
 
 echo "==> [$THIS_HOST] common.sh complete"
+

@@ -1,24 +1,29 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 #
-# Server Sorcery 101 - 4 VM environment
+# Server Sorcery 101 - 5 VM environment
 #   load-balancer  -> public-facing entry point (only VM reachable from host browser)
 #   web-server-1/2 -> stateless request handlers, only reachable from load-balancer
 #   app-server     -> core application logic, only reachable from web servers
+#   backup         -> pulls weekly backups from every other VM over SSH
 #
 # All VMs sit on a private host-only network (192.168.56.0/24) with static IPs.
 
 IMAGE = "ubuntu/jammy64"
 
 # Path to the PUBLIC key you want installed for the 'devops' user.
-# Generate one first if you don't have it: ssh-keygen -t ed25519 -f ~/.ssh/devops_key
 SSH_PUB_KEY_PATH = File.expand_path("~/.ssh/devops_key.pub")
+
+# Path to the matching PRIVATE key - only copied onto the backup VM, so it
+# can authenticate as devops when pulling backups from the other four VMs.
+SSH_PRIVATE_KEY_PATH = File.expand_path("~/.ssh/devops_key")
 
 NODES = {
   "load-balancer" => { ip: "192.168.56.10", cpus: 2, memory: 1024, role: "load-balancer" },
   "web-server-1"  => { ip: "192.168.56.11", cpus: 1, memory: 1024, role: "web-server"     },
   "web-server-2"  => { ip: "192.168.56.12", cpus: 1, memory: 1024, role: "web-server"     },
   "app-server"    => { ip: "192.168.56.13", cpus: 2, memory: 2048, role: "app-server"     },
+  "backup"        => { ip: "192.168.56.14", cpus: 1, memory: 1024, role: "backup"         },
 }
 
 unless File.exist?(SSH_PUB_KEY_PATH)
@@ -32,7 +37,7 @@ end
 ENABLE_BONUS = ENV["ENABLE_BONUS"] == "true"
 
 # Boot VMs one at a time instead of in parallel. Slower overall, but booting
-# all 4 simultaneously competes hard for host CPU/disk right when cloud-init
+# all simultaneously competes hard for host CPU/disk right when cloud-init
 # needs it most - this was the most likely real cause of repeated boot
 # timeouts, not anything wrong with the provisioning scripts themselves.
 ENV["VAGRANT_NO_PARALLEL"] = "1"
@@ -63,6 +68,14 @@ Vagrant.configure("2") do |config|
         source: SSH_PUB_KEY_PATH,
         destination: "/tmp/devops_key.pub"
 
+      # Only the backup VM also gets the PRIVATE key - it needs to
+      # authenticate outward as devops to pull backups from the others.
+      if name == "backup"
+        node.vm.provision "file",
+          source: SSH_PRIVATE_KEY_PATH,
+          destination: "/tmp/devops_key"
+      end
+
       # Baseline hardening + user setup, applied to every VM
       node.vm.provision "shell", path: "scripts/common.sh", args: [name]
 
@@ -77,4 +90,3 @@ Vagrant.configure("2") do |config|
     end
   end
 end
-
