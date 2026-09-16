@@ -14,6 +14,7 @@ systemctl disable nginx 2>/dev/null || true
 # Copy the frontend application code onto this VM
 mkdir -p /opt/app/frontend
 cp -r /vagrant/app/frontend/* /opt/app/frontend/
+chmod -R o+rX /opt/app
 
 # Build the Docker image from the copied code
 cd /opt/app/frontend
