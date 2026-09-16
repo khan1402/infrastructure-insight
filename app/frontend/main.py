@@ -6,10 +6,14 @@ import os
 import socket
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
+
+# Serve style.css (and any future static assets) at /static/...
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Read the backend URL from an environment variable, with a fallback
 # default for local testing.
@@ -31,4 +35,6 @@ def home(request: Request):
         }
     )
     
+    
+
     
