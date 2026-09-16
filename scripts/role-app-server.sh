@@ -17,6 +17,7 @@ systemctl daemon-reload
 # Copy the backend application code onto this VM
 mkdir -p /opt/app/backend
 cp -r /vagrant/app/backend/* /opt/app/backend/
+chmod -R o+rX /opt/app
 
 # Build the Docker image from the copied code
 cd /opt/app/backend
