@@ -87,7 +87,7 @@ for entry in "${HOSTS[@]}"; do
     ssh_cmd "$ip" "docker ps --filter name=backend-app --filter status=running -q | grep -q ." &>/dev/null
     check "backend-app container is running" $?
 
-    ssh_cmd "$ip" "curl -sf http://localhost:3000/metrics | grep -q hostname" &>/dev/null
+    ssh_cmd "$ip" "curl -sf http://${ip}:3000/metrics | grep -q hostname" &>/dev/null
     check "/metrics endpoint returns real data" $?
   fi
 
@@ -98,7 +98,7 @@ for entry in "${HOSTS[@]}"; do
     ssh_cmd "$ip" "docker ps --filter name=frontend-app --filter status=running -q | grep -q ." &>/dev/null
     check "frontend-app container is running" $?
 
-    ssh_cmd "$ip" "curl -sf http://localhost:80 | grep -q 'Infrastructure Insight'" &>/dev/null
+    ssh_cmd "$ip" "curl -sf http://${ip}:80 | grep -q 'Infrastructure Insight'" &>/dev/null
     check "frontend serves the expected page" $?
   fi
 
@@ -106,15 +106,15 @@ for entry in "${HOSTS[@]}"; do
     ssh_cmd "$ip" "command -v nginx" &>/dev/null
     check "nginx is installed" $?
 
-    ssh_cmd "$ip" "sudo nginx -t" &>/dev/null
-    check "nginx config is valid" $?
+    ssh_cmd "$ip" "systemctl is-active --quiet nginx" &>/dev/null
+    check "nginx is running" $?
   fi
 done
 
 # --- Load balancing behavior check (run from host, not over SSH) ---
 echo ""
 echo "=== Load balancer distribution check ==="
-responses=$(for i in $(seq 1 6); do curl -s http://192.168.56.10 | grep -oP '(?<=Responding web server: <strong>)[^<]+'; done)
+responses=$(for i in $(seq 1 6); do curl -s http://192.168.56.10 | grep -oP '(?<=Responding server: <strong>)[^<]+'; done)
 unique_servers=$(echo "$responses" | sort -u | wc -l)
 if [ "$unique_servers" -ge 2 ]; then
   check "traffic is distributed across both web servers" 0
