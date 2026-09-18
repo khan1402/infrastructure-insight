@@ -41,22 +41,28 @@ if [[ ! -d "$SOURCE_DIR" ]]; then
   exit 1
 fi
 
+# --no-owner --no-group: the original backup preserved the source files'
+# owner/group (often root, since provisioning created them as root). When
+# restoring as the non-root devops user, trying to re-apply that original
+# ownership fails with "Operation not permitted" - devops can't chgrp to
+# root. We don't need to preserve original ownership on restore, just the
+# file contents and permissions, so these flags skip that step entirely.
 case "$DATA_TYPE" in
   etc)
     echo "==> Restoring /etc to ${HOST}..."
-    rsync -az -e "ssh ${SSH_OPTS}" \
+    rsync -az --no-owner --no-group -e "ssh ${SSH_OPTS}" \
       "${SOURCE_DIR}/" "devops@${HOST}:/tmp/restored-etc/"
     echo "==> Restored to /tmp/restored-etc/ on ${HOST} (review before copying into /etc)"
     ;;
   home-devops)
     echo "==> Restoring /home/devops to ${HOST}..."
-    rsync -az -e "ssh ${SSH_OPTS}" \
+    rsync -az --no-owner --no-group -e "ssh ${SSH_OPTS}" \
       "${SOURCE_DIR}/" "devops@${HOST}:/home/devops/"
     echo "==> Restored directly to /home/devops on ${HOST}"
     ;;
   app-data)
     echo "==> Restoring /opt/app to ${HOST}..."
-    rsync -az -e "ssh ${SSH_OPTS}" \
+    rsync -az --no-owner --no-group -e "ssh ${SSH_OPTS}" \
       "${SOURCE_DIR}/" "devops@${HOST}:/opt/app/"
     echo "==> Restored directly to /opt/app on ${HOST}"
     ;;
@@ -68,4 +74,5 @@ esac
 
 rm -rf "${WORKDIR}"
 echo "==> Restore complete."
+
 
