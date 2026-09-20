@@ -1,37 +1,60 @@
-# Server Sorcery 101 — Infrastructure Setup
+# Infrastructure Insight — Project 2
 
 ## 1. Project Overview
 
-A 4-VM environment simulating a small production web stack, built with Vagrant + VirtualBox:
+A 5-VM environment extending [Server Sorcery 101](https://gitea.kood.tech/zeeshankhan/server-sorcery-101) with a real, containerized diagnostic application — proving the hardened infrastructure actually works by serving live server metrics through it.
 
-- **load-balancer** — the only VM reachable from outside the lab network. Runs nginx as a reverse proxy.
-- **web-server-1 / web-server-2** — stateless request handlers behind the load balancer.
-- **app-server** — hosts the core application logic, reachable only from the web tier.
+- **load-balancer** — the only VM reachable from outside the lab network. Runs nginx as a reverse proxy, distributing traffic across both web servers using the `least_conn` algorithm with passive health checks.
+- **web-server-1 / web-server-2** — identical, stateless frontend containers behind the load balancer. Each calls the backend's `/metrics` endpoint and renders a live diagnostic dashboard.
+- **app-server** — hosts the backend container: a small FastAPI service that reads real system data (hostname, OS, CPU, memory) and serves it as JSON.
+- **backup** — pulls weekly automated backups (application data, `/home`, `/etc`) from all four other VMs over SSH, and can restore any of the three data types on demand.
 
-The environment is designed around the principle of **least exposure**: every VM only accepts traffic it strictly needs, from exactly the hosts that need to send it.
+The environment keeps Project 1's **least exposure** principle throughout: every VM only accepts traffic it strictly needs, from exactly the hosts that need to send it — extended here to also cover Docker's own port publishing, which by default bypasses UFW's filtering entirely (see `docs/architecture.md`, "Docker/UFW Port Binding").
 
-For the full network diagram, IP/resource table, and security-measures breakdown, see [`docs/architecture.md`](docs/architecture.md). For the running build log this project was developed from, see [`docs/notes.md`](docs/notes.md).
+For the full network diagram, IP/resource table, and security measures, see [`docs/architecture.md`](docs/architecture.md). For the running build logs, see [`docs/notes_project-1.md`](docs/notes_project-1.md) and [`docs/notes_project-2.md`](docs/notes_project-2.md).
 
 ## 2. Repository Structure
 
 ```
-server-sorcery-101/
-├── Vagrantfile              # VM topology: hostnames, IPs, resources, provisioning order
-├── README.md                # this file — quick start
+infrastructure-insight/
+├── Vagrantfile                  # VM topology: 5 nodes, IPs, resources, provisioning order
+├── README.md                    # this file
+├── .gitattributes                # forces LF line endings on .sh/.txt (Windows CRLF fix)
 ├── .gitignore
+├── app/
+│   ├── backend/
+│   │   ├── metrics.py            # system data collection — no web-framework code
+│   │   ├── main.py               # FastAPI app, exposes /metrics
+│   │   ├── requirements.txt
+│   │   ├── Dockerfile
+│   │   └── .dockerignore
+│   └── frontend/
+│       ├── main.py               # FastAPI app, calls backend, renders dashboard
+│       ├── requirements.txt
+│       ├── Dockerfile
+│       ├── .dockerignore
+│       ├── templates/index.html  # Jinja2 dashboard template
+│       └── static/css/style.css  # responsive dashboard styling
+├── backup/
+│   ├── backup.sh                 # pulls weekly backups from all 4 VMs over SSH
+│   ├── restore.sh                # restores one data type to one host on demand
+│   └── crontab.txt               # weekly schedule (Sunday 2 AM)
 ├── scripts/
-│   ├── common.sh             # baseline hardening applied to every VM
-│   ├── role-load-balancer.sh # nginx reverse proxy + public-facing firewall rule
-│   ├── role-web-server.sh    # placeholder web app + LB-only firewall rule
-│   ├── role-app-server.sh    # placeholder core logic + web-tier-only firewall rule
-│   ├── bonus-fail2ban.sh     # SSH brute-force protection (ENABLE_BONUS=true)
-│   ├── bonus-wireguard.sh    # VPN interface, per-VM keypair (ENABLE_BONUS=true)
-│   └── bonus-netdata.sh      # real-time monitoring dashboard (ENABLE_BONUS=true)
+│   ├── common.sh                 # baseline hardening, applied to every VM
+│   ├── docker-install.sh         # shared Docker install, sourced by app/web roles
+│   ├── role-app-server.sh        # builds + runs backend container
+│   ├── role-web-server.sh        # builds + runs frontend container
+│   ├── role-load-balancer.sh     # nginx reverse proxy + load-balancing config
+│   ├── role-backup.sh            # deploys backup/restore scripts + cron job
+│   ├── bonus-fail2ban.sh
+│   ├── bonus-wireguard.sh
+│   └── bonus-netdata.sh
 ├── validate/
-│   └── check-requirements.sh # scripted version of the grading checklist
+│   └── check-requirements.sh     # 45 automated checks across all 5 VMs
 └── docs/
-    ├── architecture.md       # final network diagram, IP table, security measures
-    └── notes.md               # running build log — source material for the above
+    ├── architecture.md
+    ├── notes_project-1.md
+    └── notes_project-2.md
 ```
 
 ## 3. Setup & Installation
@@ -39,34 +62,25 @@ server-sorcery-101/
 ### Prerequisites
 - [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
 - [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
-- An SSH key pair for the `devops` user \u2014 this is what the Vagrantfile looks for before it will let `vagrant up` run, and what gets installed on every VM for admin access:
+- An SSH key pair for the `devops` user:
   ```bash
   ssh-keygen -t ed25519 -f ~/.ssh/devops_key
   ```
-  This creates two files in your own `~/.ssh/` folder: `devops_key` (private, keep secret) and `devops_key.pub` (public, gets copied onto the VMs automatically during provisioning). Press Enter twice at the passphrase prompts to leave it blank. Neither file is included in this repository \u2014 everyone who runs this project generates their own.
+  Creates `devops_key` (private) and `devops_key.pub` (public, installed on every VM automatically). Press Enter twice at the passphrase prompts. Neither file is in this repo — generate your own.
 
 ### Bring the environment up
 ```bash
-git clone <this-repo>
-cd server-sorcery-101
+git clone https://gitea.kood.tech/zeeshankhan/infrastructure-insight.git
+cd infrastructure-insight
 vagrant up
 ```
 
-This will, per VM, in order:
-1. Provision the box and assign its static IP
-2. Copy the `devops` public key onto the VM (`file` provisioner)
-3. Run `scripts/common.sh` — creates the `devops` user, hardens SSH, sets up UFW, sets umask, enables auto security updates, writes `/etc/hosts` entries for name resolution
-4. Run the role-specific script (`role-load-balancer.sh`, `role-web-server.sh`, or `role-app-server.sh`)
+This provisions all 5 VMs in order, one at a time (parallel boot competes too hard for host resources on first boot — see `docs/notes_project-1.md`). Per VM:
+1. Assigns its static IP, copies the `devops` public key
+2. Runs `common.sh` — hardening, UFW, SSH lockdown, `rsync` install
+3. Runs the role-specific script — installs Docker (app-server/web-servers), builds and runs the appropriate container, or configures nginx (load-balancer), or deploys backup tooling (backup)
 
-**Important — save the sudo passwords shown during setup.** Each VM gets a random local password for the `devops` user, generated fresh during provisioning and printed once to the console in a boxed block:
-
-```
-################################################################
-# [load-balancer] devops sudo password (SAVE THIS, shown once): <random>
-################################################################
-```
-
-SSH key auth gets you *into* a VM, but `sudo` checks a separate local password - without saving this, you can log in but won't be able to run anything with `sudo` on that VM. See [`docs/architecture.md`](docs/architecture.md) ("Sudo Password Handling") for why this exists. If you lose a password, there's no recovery - destroy and rebuild that one VM (`vagrant destroy <vm> -f && vagrant up <vm>`) to get a fresh one.
+**Save the sudo passwords shown during setup** — each VM gets a random local password for `devops`, printed once. See `docs/architecture.md` for why SSH key auth and `sudo` password are separate systems.
 
 ### Accessing the environment
 ```bash
@@ -74,97 +88,72 @@ ssh -i ~/.ssh/devops_key devops@192.168.56.10   # load-balancer
 ssh -i ~/.ssh/devops_key devops@192.168.56.11   # web-server-1
 ssh -i ~/.ssh/devops_key devops@192.168.56.12   # web-server-2
 ssh -i ~/.ssh/devops_key devops@192.168.56.13   # app-server
+ssh -i ~/.ssh/devops_key devops@192.168.56.14   # backup
 ```
 
-Load balancer, from the host browser: `http://localhost:8080`
+The application, through the load balancer, from the host browser: **`http://localhost:8080`**
 
-## 4. Validating the Setup
+## 4. Usage Guide
 
-Run the scripted checklist before a review:
+**View the diagnostic dashboard** — open `http://localhost:8080` in a browser. Refresh to see the "Responding server" value alternate between `web-server-1` and `web-server-2`, proving the load balancer is distributing traffic live.
+
+**Query the backend directly:**
 ```bash
-./validate/check-requirements.sh
+curl http://192.168.56.13:3000/metrics
 ```
 
-Or check things manually — these map directly to the grading rubric:
-
+**Run a manual backup:**
 ```bash
-# Hostname + resolution
-hostname                                  # on each VM
-ping -c 3 web-server-1                    # from any other VM
-
-# Static IP persists after reboot
-ip a
-vagrant reload web-server-1 && ssh ... ip a   # confirm unchanged
-
-# Inter-VM connectivity
-ping -c 3 192.168.56.11                   # 0% packet loss expected
-
-# devops user + sudo group
-grep devops /etc/passwd
-groups devops                             # -> devops : devops sudo
-
-# Password auth disabled / key-only login
-ssh devops@192.168.56.10                  # should NOT prompt for a password
-ssh root@192.168.56.10                    # should be refused
-ssh someoneelse@192.168.56.10             # should be refused (AllowUsers devops)
-
-# sudo requires password (not passwordless)
-sudo visudo                               # should prompt devops for their password
-
-# Active interfaces
-ip link show
-
-# UFW status
-sudo ufw status verbose
-
-# umask
-umask
-
-# Auto security updates
-cat /etc/apt/apt.conf.d/20auto-upgrades
-sudo apt update && sudo apt list --upgradable
+ssh -i ~/.ssh/devops_key devops@192.168.56.14 "/opt/backup/backup.sh"
 ```
 
-## 5. Bonus / Extra Functionality
+**Restore data** (three types: `app-data`, `etc`, `home-devops`):
+```bash
+ssh -i ~/.ssh/devops_key devops@192.168.56.14 \
+  "/opt/backup/restore.sh <backup-date> <host> <data-type>"
+# example:
+ssh -i ~/.ssh/devops_key devops@192.168.56.14 \
+  "/opt/backup/restore.sh 2026-09-18 web-server-1 app-data"
+```
+`etc` restores land in `/tmp/restored-etc/` for manual review rather than overwriting live system config directly — restoring straight into a running VM's `/etc` risks breaking SSH/sudo mid-restore.
 
-Three bonus categories are implemented — Intrusion Prevention (Fail2Ban), VPN (WireGuard), and Monitoring (Netdata). All three are off by default so the required core environment is unaffected; turn them on with a feature flag:
+## 5. Validating the Setup
 
 ```bash
-ENABLE_BONUS=true vagrant up
+bash validate/check-requirements.sh
 ```
+Run from **Git Bash** (not WSL/PowerShell — different SSH key locations). 45 automated checks: user/SSH/sudo setup, UFW rules, umask, auto-updates, Docker installation, container status, `/metrics` and frontend responses (via each VM's own private IP, not `localhost` — see architecture doc), nginx status, load-balancing distribution, and the Docker/UFW port-exposure security check.
 
-**Important:** this environment variable only lasts for the current terminal session. If you open a fresh terminal (or after a reboot), you need to set it again before any `vagrant up` where you want bonus features included — otherwise Vagrant silently skips them with no error, which is easy to miss.
+Manual checks matching the review rubric — see `docs/notes_project-2.md` for full command examples of `docker ps`, `docker logs`, `ufw status verbose`, `ping`/`telnet`/`traceroute` between VM pairs, `crontab -l` / `cat /etc/cron.d/backup`, and `curl -I`/`curl -v` header inspection.
 
-### Fail2Ban (Intrusion Prevention)
-`scripts/bonus-fail2ban.sh` bans an IP for 1 hour after 5 failed SSH attempts within 10 minutes. Demonstrate with:
-```bash
-sudo fail2ban-client status sshd
-```
+## 6. Load Balancing Algorithm
 
-### WireGuard (VPN)
-`scripts/bonus-wireguard.sh` installs WireGuard and brings up an active `wg0` interface on each VM with a real generated keypair, listening on `51820/udp` (allowed only from the lab subnet). **Scope note:** each VM has its own working WireGuard interface, but full mesh peering between all 4 VMs isn't configured — that requires cross-referencing every VM's public key into every other VM's config, which is complex to do reliably during independent, sequential provisioning. Demonstrate with:
-```bash
-sudo wg show
-```
+`least_conn` (least connections), not nginx's default round-robin — chosen because the frontend must call the backend before responding, adding variable per-request latency; round-robin would keep sending new requests to a server that's still mid-request, while `least_conn` routes to whichever server currently has the fewest active connections. Paired with passive health checks (`max_fails=3 fail_timeout=10s`) — no extra monitoring tooling needed. Full config: `/etc/nginx/sites-available/load-balancer` on the load-balancer VM.
 
-### Netdata (Monitoring)
-`scripts/bonus-netdata.sh` installs Netdata via Ubuntu's package (faster than the official kickstart installer) and configures it to bind to all interfaces, restricted by UFW to the lab subnet only — consistent with the "least exposure" design used everywhere else in this project. Since the host machine sits on that same subnet via VirtualBox's host-only adapter, no SSH tunnel is needed:
-```bash
-curl http://192.168.56.11:19999/api/v1/info
-# or open http://192.168.56.11:19999 directly in a browser
-```
+## 7. Bonus / Extra Functionality Implemented
 
-TLS termination and centralized logging remain genuinely unimplemented — see [`docs/architecture.md`](docs/architecture.md) under "Recommendations for Future Improvements."
+Beyond the core requirements:
+- **Docker/UFW port-binding security fix** — Docker's default port publishing (`0.0.0.0`) bypasses UFW's subnet filtering entirely for container ports. Fixed by binding each container to its VM's specific private IP instead (see `docs/architecture.md`).
+- **Passive load-balancer health checking** — automatic failover if a web server starts failing, no extra tooling.
+- **Full automated validation suite** — 45 checks across all 5 VMs in one command.
+- **Complete restore tooling**, not just backup — all three data types, with a safety-conscious design for `/etc`.
+- **Responsive, animated UI** — card-based dashboard, progress bars, dark theme, fade-in animation, mobile-responsive grid.
+- **`.gitattributes` line-ending enforcement** — prevents Windows CRLF from silently breaking shell scripts.
 
-## 6. Challenges & Lessons Learned
+Project 1's original bonus categories (Fail2Ban, WireGuard, Netdata) remain available via `ENABLE_BONUS=true vagrant up` — see the original `server-sorcery-101` README for details, carried forward unchanged in this repo's `scripts/bonus-*.sh`.
 
-See [`docs/notes.md`](docs/notes.md) for the full build log. Headline items worth knowing before a review:
+## 8. Challenges & Lessons Learned
 
-- **`devops` had an SSH key but no local password.** Early on, `common.sh` created the `devops` user and installed an SSH key, but never actually set a Linux password - SSH key auth and `sudo`'s local password check are two completely separate systems, and disabling `PasswordAuthentication` in `sshd_config` has zero effect on what `sudo` checks. Fixed by generating a random password per VM at provisioning time (see "Setup & Installation" above and `docs/architecture.md`), rather than hardcoding one in the repo.
-- **The umask hardening (a rubric requirement) broke web content serving as a side effect.** Once umask 027 was genuinely enforced everywhere, root-created files like the web server's `index.html` and the app server's `app.py` stopped being readable by the non-root processes (`www-data` for nginx, `devops` for the systemd service) that needed to serve/run them - producing a live `403 Forbidden` through the load balancer despite the nginx config itself being correct. Fixed with explicit `chown`/`chmod` on just those specific files, rather than loosening the umask policy itself. Traced end-to-end via `curl -v`, the nginx error log, and `ls -la` on the actual file - full debugging trail in `docs/notes.md` (Day 5).
-- **`AllowUsers devops` + UFW's subnet restriction together permanently lock out Vagrant's own NAT-based access** (`vagrant ssh`, `vagrant provision`, `vagrant reload`) once `common.sh` has run on a VM - by design, not a bug. Any future admin access has to go through `ssh devops@<private-ip>` directly, and any script changes require a full `vagrant destroy` + `vagrant up` rather than live reprovisioning.
-- **UFW enabled before the SSH allow rule exists** can lock you out entirely - `common.sh` adds the SSH rule *before* `ufw --force enable` for exactly this reason.
-- **Two NICs per VM, both in use** - `eth0` (Vagrant/VirtualBox NAT, used for provisioning) and `eth1` (the private network, your static IP). Worth explaining explicitly rather than it looking like an oversight during review.
-- **VMs occasionally time out on first boot after a cold `vagrant halt` / `vagrant up` cycle**, even with `boot_timeout` raised to 900s (later 1800s) - resolved every time by destroying and rebuilding just that one VM (`vagrant destroy <vm> -f && vagrant up <vm>`), sometimes needing 2-3 attempts. Not fully root-caused, but consistently fixable.
-- **Netdata's Ubuntu package binds to `127.0.0.1` only by default** - the UFW rule allowing the dashboard port from the lab subnet was correct but irrelevant, since the app itself never accepted outside connections in the first place. Fixed by explicitly configuring `bind to = 0.0.0.0`.
-- **`$env:ENABLE_BONUS="true"` only persists for the PowerShell session it's set in.** A fresh terminal silently skips the bonus provisioners with no error - easy to miss, since `vagrant up` completes "successfully" either way. See `docs/notes.md` (Day 6) for the full trace.
+See [`docs/notes_project-1.md`](docs/notes_project-1.md) and [`docs/notes_project-2.md`](docs/notes_project-2.md) for the full build logs. Headline items:
+
+- **`docker-install.sh` sourced, not executed — `exit 0` killed the whole caller.** Since it's sourced by the role scripts rather than run as a subprocess, an early `exit 0` (idempotency check) terminated the *entire* calling script on any re-provision, not just itself. Fixed with `return 0`.
+- **Docker bypasses UFW for published container ports.** Binding containers to `0.0.0.0` (the default) means Docker's own iptables rules accept traffic on any interface, regardless of UFW's subnet restrictions — a real, non-obvious security gap. Fixed by binding to each VM's specific private IP (`-p 192.168.56.13:3000:3000`) instead.
+- **`/opt/app` unreadable by the backup process.** Backend/frontend code was copied as root with no explicit permissions for the non-root `devops` user that runs backups — `rsync` failed with `Permission denied` pulling `/opt/app`. Fixed with `chmod -R o+rX /opt/app` in both role scripts.
+- **Restore failed with `chgrp`/`chmod` "Operation not permitted."** `rsync -a` preserves the original owner/group/permissions (often root) from the backup; restoring as non-root `devops` can't re-apply root ownership. Fixed with `--no-owner --no-group --no-perms` on all three restore paths.
+- **Uvicorn startup race condition.** Containers reported "running" before the app inside had actually finished starting, causing early health checks to fail with connection resets. Fixed with a short `sleep 3` after `docker run`.
+- **CRLF line endings silently broke shell scripts.** Windows/Git CRLF conversion caused `bash: $'\r': command not found` errors invisible to the eye in an editor. Fixed per-file with `sed -i 's/\r$//'`, then prevented repo-wide with `.gitattributes` (`*.sh` and `*.txt` forced to `eol=lf`).
+- **VirtualBox host-only networking degraded after heavy VM churn.** Repeated destroy/rebuild/suspend/resume cycles in one session led to unreliable `vagrant ssh`/`vagrant provision` ("guest communication" errors) and eventual boot timeouts — not caused by any script bug. Resolved with a full host restart, then rebuilding one VM at a time rather than in parallel.
+- **`vagrant reload` far less reliable than `destroy` + `up`** for VMs after heavy same-session churn — full rebuild was the consistently working fix throughout testing.
+- **`crontab -l` shows nothing despite a working schedule** — the job lives in `/etc/cron.d/backup` (system-wide, provisioning-friendly) rather than a personal crontab (requires interactive `crontab -e`), which is the correct approach for a script-installed job but easy to misread as "not configured" if you don't know to check both.
+
+
