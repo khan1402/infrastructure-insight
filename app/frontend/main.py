@@ -20,7 +20,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://192.168.56.13:3000")
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def home(request: Request):
     """Fetch metrics from the backend and render them on a webpage."""
     response = httpx.get(f"{BACKEND_URL}/metrics")
