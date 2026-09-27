@@ -1,8 +1,8 @@
-# Infrastructure Insight — Project 2
+# Infrastructure Insight
 
 ## 1. Project Overview
 
-A 5-VM environment extending [Server Sorcery 101](https://gitea.kood.tech/zeeshankhan/server-sorcery-101) with a real, containerized diagnostic application — proving the hardened infrastructure actually works by serving live server metrics through it.
+A 5-VM environment extending [Server Sorcery 101] with a real, containerized diagnostic application — proving the hardened infrastructure actually works by serving live server metrics through it.
 
 - **load-balancer** — the only VM reachable from outside the lab network. Runs nginx as a reverse proxy, distributing traffic across both web servers using the `least_conn` algorithm with passive health checks.
 - **web-server-1 / web-server-2** — identical, stateless frontend containers behind the load balancer. Each calls the backend's `/metrics` endpoint and renders a live diagnostic dashboard.
